@@ -13,6 +13,7 @@ DerivedData/
 MeetRec.app/
 MeetRec.app.zip
 *.dSYM/
+build/
 
 # macOS
 .DS_Store

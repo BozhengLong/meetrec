@@ -19,6 +19,13 @@ mkdir -p "${MACOS_DIR}" "${RES_DIR}"
 
 cp ".build/release/${APP_NAME}" "${MACOS_DIR}/${APP_NAME}"
 
+if [ -f "Resources/AppIcon.icns" ]; then
+    cp "Resources/AppIcon.icns" "${RES_DIR}/AppIcon.icns"
+    echo "→ Bundled AppIcon.icns"
+else
+    echo "⚠ Resources/AppIcon.icns not found — generate it with ./make-icon.sh"
+fi
+
 cat > "${CONTENTS}/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -40,6 +47,10 @@ cat > "${CONTENTS}/Info.plist" <<EOF
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.2</string>
     <key>LSUIElement</key>
