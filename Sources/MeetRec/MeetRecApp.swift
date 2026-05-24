@@ -17,7 +17,14 @@ struct MeetRecApp: App {
             MenuBarView(engine: engine)
                 .onAppear { wireHotkeys() }
         } label: {
-            Image(systemName: iconName)
+            HStack(spacing: 3) {
+                Image(systemName: iconName)
+                if engine.isRecording {
+                    Text(timeString(engine.elapsed))
+                        .font(.system(.body, design: .monospaced))
+                        .monospacedDigit()
+                }
+            }
         }
         .menuBarExtraStyle(.window)
     }
@@ -30,6 +37,16 @@ struct MeetRecApp: App {
         case (true,  false): return "speaker.slash.circle.fill"
         case (true,  true):  return "circle.slash"
         }
+    }
+
+    private func timeString(_ t: TimeInterval) -> String {
+        let total = Int(t)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%02d:%02d", m, s)
     }
 
     private func wireHotkeys() {

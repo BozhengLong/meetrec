@@ -15,6 +15,8 @@ final class RecordingEngine: ObservableObject {
         didSet { writer?.micMuted = micMuted }
     }
     @Published private(set) var lastOutputURL: URL?
+    @Published private(set) var systemLevel: Float = 0
+    @Published private(set) var micLevel: Float = 0
 
     private var systemCapture: SystemAudioCapture?
     private var micCapture: MicrophoneCapture?
@@ -59,15 +61,25 @@ final class RecordingEngine: ObservableObject {
         self.writer = writer
 
         let mic = MicrophoneCapture()
-        mic.onBuffer = { [weak writer] buffer, _ in
+        mic.onBuffer = { [weak writer, weak self] buffer, _ in
             writer?.appendMic(buffer: buffer)
+            let peak = AudioLevel.peak(of: buffer)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if peak > self.micLevel { self.micLevel = peak }
+            }
         }
         try await mic.start()
         self.micCapture = mic
 
         let sys = SystemAudioCapture()
-        sys.onBuffer = { [weak writer] buffer, _ in
+        sys.onBuffer = { [weak writer, weak self] buffer, _ in
             writer?.appendSystem(buffer: buffer)
+            let peak = AudioLevel.peak(of: buffer)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if peak > self.systemLevel { self.systemLevel = peak }
+            }
         }
         do {
             try await sys.start()
@@ -78,9 +90,13 @@ final class RecordingEngine: ObservableObject {
 
         let start = Date()
         startDate = start
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.elapsed = Date().timeIntervalSince(start)
+                guard let self else { return }
+                self.elapsed = Date().timeIntervalSince(start)
+                // Exponential decay so meters drop smoothly when levels fall.
+                self.systemLevel *= 0.85
+                self.micLevel *= 0.85
             }
         }
         lastOutputURL = url
@@ -114,6 +130,8 @@ final class RecordingEngine: ObservableObject {
         writer = nil
         startDate = nil
         elapsed = 0
+        systemLevel = 0
+        micLevel = 0
         isRecording = false
     }
 }

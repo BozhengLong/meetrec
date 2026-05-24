@@ -9,21 +9,25 @@ struct MenuBarView: View {
 
             Divider()
 
-            Toggle(isOn: Binding(
-                get: { !engine.systemMuted },
-                set: { engine.systemMuted = !$0 }
-            )) {
-                Label("System Audio", systemImage: "speaker.wave.2")
-            }
-            .toggleStyle(.switch)
+            channelRow(
+                icon: "speaker.wave.2",
+                label: "System Audio",
+                muted: Binding(
+                    get: { engine.systemMuted },
+                    set: { engine.systemMuted = $0 }
+                ),
+                level: engine.systemLevel
+            )
 
-            Toggle(isOn: Binding(
-                get: { !engine.micMuted },
-                set: { engine.micMuted = !$0 }
-            )) {
-                Label("Microphone", systemImage: "mic")
-            }
-            .toggleStyle(.switch)
+            channelRow(
+                icon: "mic",
+                label: "Microphone",
+                muted: Binding(
+                    get: { engine.micMuted },
+                    set: { engine.micMuted = $0 }
+                ),
+                level: engine.micLevel
+            )
 
             Text("⌥⌘M mic · ⌥⌘S system · ⌥⌘R record")
                 .font(.caption2)
@@ -51,7 +55,7 @@ struct MenuBarView: View {
             }
         }
         .padding(12)
-        .frame(width: 280)
+        .frame(width: 300)
     }
 
     private var header: some View {
@@ -70,6 +74,25 @@ struct MenuBarView: View {
         }
     }
 
+    private func channelRow(icon: String,
+                            label: String,
+                            muted: Binding<Bool>,
+                            level: Float) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(isOn: Binding(
+                get: { !muted.wrappedValue },
+                set: { muted.wrappedValue = !$0 }
+            )) {
+                Label(label, systemImage: icon)
+            }
+            .toggleStyle(.switch)
+
+            LevelBar(level: level, muted: muted.wrappedValue)
+                .frame(height: 4)
+                .padding(.leading, 22)
+        }
+    }
+
     private func timeString(_ t: TimeInterval) -> String {
         let total = Int(t)
         let h = total / 3600
@@ -78,5 +101,36 @@ struct MenuBarView: View {
         return h > 0
             ? String(format: "%d:%02d:%02d", h, m, s)
             : String(format: "%02d:%02d", m, s)
+    }
+}
+
+struct LevelBar: View {
+    let level: Float  // 0...1
+    let muted: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.15))
+                Capsule()
+                    .fill(barColor)
+                    .frame(width: geo.size.width * CGFloat(displayLevel))
+                    .animation(.linear(duration: 0.05), value: displayLevel)
+            }
+        }
+    }
+
+    private var displayLevel: Float {
+        muted ? 0 : min(max(level, 0), 1)
+    }
+
+    private var barColor: Color {
+        if muted { return .gray.opacity(0.5) }
+        switch level {
+        case ..<0.6:  return .green
+        case ..<0.85: return .yellow
+        default:      return .red
+        }
     }
 }

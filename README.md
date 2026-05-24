@@ -1,40 +1,16 @@
 # MeetRec
 
-A minimal macOS menu-bar recorder that captures **system audio + microphone** into a single stereo M4A file (left channel = system, right channel = mic). Each channel can be muted independently in real-time via global hotkeys.
+[![macOS](https://img.shields.io/badge/macOS-14.2%2B-blue)](https://www.apple.com/macos/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/BozhengLong/meetrec)](https://github.com/BozhengLong/meetrec/releases)
+[![Stars](https://img.shields.io/github/stars/BozhengLong/meetrec?style=social)](https://github.com/BozhengLong/meetrec/stargazers)
 
-Built for archiving meetings and livestreams where you have no native recording rights (Tencent Meeting, Bilibili/YouTube live, etc.) — record now, transcribe later with whichever ASR you prefer.
+**Record meetings, livestreams, and calls on macOS — locally, into a single stereo M4A file.** Left channel is system audio, right channel is your microphone. No cloud. No bot in your meeting. No virtual audio driver. Works with AirPods.
 
-## Why another recorder?
+<!-- TODO: replace this line with a short demo gif -->
+> _Demo gif coming soon — menu bar icon, hotkey muting mic, file appearing in Finder._
 
-Most "AI notetaker" tools either join meetings as a visible bot, send your audio to the cloud, or require a virtual audio driver like BlackHole. MeetRec does none of that:
-
-- **Local-only**: no cloud, no bot in your meeting
-- **No virtual audio driver**: uses Apple's `ScreenCaptureKit` directly
-- **Works with AirPods**: unlike Core Audio Process Taps, ScreenCaptureKit handles Bluetooth HFP/SCO mode correctly
-- **Two-channel output**: system audio and microphone stay separated, so you can mute one without losing the other, and post-process them independently for transcription
-
-## Features
-
-- Menu bar app, no dock icon
-- Left channel = system audio, right channel = microphone
-- Per-channel mute toggles (real-time, no click/pop, instant)
-- Global hotkeys:
-  - `⌥⌘M` — toggle microphone
-  - `⌥⌘S` — toggle system audio
-  - `⌥⌘R` — start / stop recording
-- Saves to `~/Recordings/YYYY-MM-DD_HHMM.m4a`
-- Reveals the file in Finder when recording stops
-- AAC 128 kbps stereo @ 48 kHz (~56 MB/hour)
-- Diagnostic log at `~/Recordings/meetrec.log`
-
-## Requirements
-
-- macOS 14.2 or later (uses ScreenCaptureKit + Swift Concurrency)
-- Xcode 15+ or Swift 5.9+ toolchain
-- Microphone permission
-- Screen Recording permission (ScreenCaptureKit requires it even though we discard video)
-
-## Build & Install
+## Install
 
 ```bash
 git clone https://github.com/BozhengLong/meetrec.git
@@ -42,41 +18,121 @@ cd meetrec
 ./make-app.sh
 ```
 
-This produces `MeetRec.app` in the project directory. Drag it to `/Applications` (or just double-click it where it is).
+Drag `MeetRec.app` to `/Applications` and double-click. On first launch macOS will block it (ad-hoc signed), so either:
 
-### First launch
+- System Settings → Privacy & Security → **Open Anyway**, or
+- `xattr -dr com.apple.quarantine /Applications/MeetRec.app`
 
-1. macOS may show **"Cannot verify the developer"** because the app is ad-hoc signed → System Settings → Privacy & Security → click **Open Anyway**
-2. Click the record icon in the menu bar → **Start Recording**
-3. Allow **microphone** access when prompted
-4. Allow **screen recording** access when prompted (used only for audio capture; no video is saved)
+Or grab the prebuilt zip from [Releases](https://github.com/BozhengLong/meetrec/releases) and do the same.
 
-## Usage
+## What it does
 
-1. Click the menu bar icon → **Start Recording** (or hit `⌥⌘R`)
-2. Toggle channels as needed during the session (`⌥⌘M` for mic is the most common — when others are speaking and you don't want your background noise recorded)
-3. Click **Stop & Reveal** → Finder opens with the new file selected
-4. Drop the file into MacWhisper / Buzz / whisper.cpp / ChatGPT for transcription
+- 🎙️ Captures **system audio** (via ScreenCaptureKit) + **microphone** (via AVAudioEngine) simultaneously
+- 🎚️ Stereo M4A output: **L = system, R = mic** — separated for clean transcription downstream
+- 🔇 Independent per-channel mute, real-time, with global hotkeys
+- 📊 Live level meters in the popover so you can see audio is actually flowing
+- ⏱️ Recording time visible right in the menu bar (no need to click)
+- 🎧 **Works with AirPods** and other Bluetooth output, unlike Process-Tap–based tools
+- 💾 Saves to `~/Recordings/YYYY-MM-DD_HHMM.m4a`, opens Finder on stop
 
-## Architecture
+### Hotkeys
+
+| Combo | Action |
+|---|---|
+| `⌥⌘R` | Start / stop recording |
+| `⌥⌘M` | Toggle microphone |
+| `⌥⌘S` | Toggle system audio |
+
+## How it compares
+
+| | MeetRec | [Granola](https://www.granola.ai/) | [Audio Hijack](https://rogueamoeba.com/audiohijack/) | [BlackHole](https://github.com/ExistentialAudio/BlackHole) + OBS |
+|---|---|---|---|---|
+| Price | Free | Subscription | $64 one-time | Free |
+| Local-only | ✅ | ❌ (cloud transcription) | ✅ | ✅ |
+| Joins meeting as bot | ✅ no | ✅ no | ✅ no | ✅ no |
+| Needs virtual audio driver | ✅ no | ✅ no | ✅ no | ❌ yes |
+| Works with AirPods | ✅ | ✅ | ✅ | ✅ |
+| Built-in transcription | ❌ (BYO Whisper) | ✅ | ❌ | ❌ |
+| Open source | ✅ | ❌ | ❌ | ✅ (BlackHole only) |
+| Setup complexity | one script | install | install | multi-step routing |
+
+If you want auto-summarized meeting notes with live transcript, use Granola. If you want a full audio production suite, use Audio Hijack. **If you just want a clean local recording that you'll feed into Whisper/ChatGPT yourself, that's what MeetRec is.**
+
+## After recording
+
+MeetRec deliberately stops at "make a clean audio file." Transcribe with whatever you prefer:
+
+```bash
+# Split L (system) and R (mic) into two mono files for cleaner transcription
+ffmpeg -i 2026-05-24_1430.m4a \
+  -map_channel 0.0.0 system.m4a \
+  -map_channel 0.0.1 mic.m4a
+
+# Then transcribe each side
+whisper-cli -m models/ggml-large-v3.bin -f system.wav -l zh
+```
+
+Or just drag the m4a into [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper), [Buzz](https://github.com/chidiwilliams/buzz), or ChatGPT.
+
+## Permissions you'll be asked for
+
+| Permission | Why |
+|---|---|
+| Microphone | Records your voice into the right channel |
+| Screen Recording | ScreenCaptureKit needs it to capture system audio. **No video is ever saved** — the dummy 2×2 video stream is discarded |
+
+If you only see the mic side recorded and `~/Recordings/meetrec.log` contains `SCShareableContent FAILED ... declined TCCs`, the Screen Recording permission is denied. Open **System Settings → Privacy & Security → Screen Recording**, enable MeetRec, then fully quit and relaunch. If MeetRec doesn't appear in the list at all (macOS suppressing the prompt after a previous denial), reset and try again:
+
+```bash
+tccutil reset ScreenCapture com.local.meetrec
+```
+
+This is most likely to happen after rebuilding from source — re-signing changes the app identity and TCC may silently remember a stale "denied" state.
+
+## Known limitations
+
+- **No transcription** — by design. Feed the m4a to whatever ASR you prefer.
+- **No pause within a single file** — stop & restart creates a new file.
+- **Switching the system output device mid-recording** is untested. Start playback first, then start recording.
+- **Ad-hoc signed**, not Apple-notarized. First launch needs a Gatekeeper override (see Install above).
+
+## Requirements
+
+- macOS **14.2** or later
+- Apple Silicon or Intel Mac
+- Xcode 15+ / Swift 5.9+ toolchain (for building from source)
+
+## Build from source
+
+```bash
+git clone https://github.com/BozhengLong/meetrec.git
+cd meetrec
+./make-app.sh         # → ./MeetRec.app
+# or, just the binary:
+swift build -c release
+```
+
+<details>
+<summary><strong>Architecture</strong></summary>
 
 ```
 ┌──────────────────────────────────┐
-│  ScreenCaptureKit (SCStream)     │  ← system audio
-│  AVAudioEngine                   │  ← microphone
-│      ↓ (each fed independently)  │
+│  SCStream (capturesAudio=true)   │  ← system audio
+│  AVAudioEngine.inputNode         │  ← microphone
+│      ↓ (independent callbacks)   │
 │  StereoWriter                    │  ← heartbeat-flushed every 100ms,
 │      ↓                           │     pads silence for the muted side
 │  AVAssetWriter → AAC m4a stereo  │
 └──────────────────────────────────┘
 ```
 
-- `SystemAudioCapture` — wraps `SCStream` with `capturesAudio=true` and a minimal 2×2 video stream that's never read.
+- `SystemAudioCapture` — wraps `SCStream` with `capturesAudio=true` and a minimal 2×2 video stream that's discarded inside SCKit.
 - `MicrophoneCapture` — `AVAudioEngine.inputNode` with a tap, requests permission explicitly via `AVCaptureDevice.requestAccess`.
-- `StereoWriter` — own dispatch queue, two mono Float32 ring buffers, every 100ms emits a stereo interleaved chunk through `AVAssetWriter`. Mute = append zeros instead of samples; the timeline stays aligned.
+- `StereoWriter` — own dispatch queue, two mono Float32 ring buffers, every 100ms emits a stereo interleaved chunk through `AVAssetWriter`. Mute = append zeros instead of samples; the timeline stays aligned, no click/pop.
 - `HotKeyManager` — Carbon `RegisterEventHotKey`, no dependencies.
+- `AudioLevel` — peak-detection over PCM buffers for the level meters.
 
-## File layout
+### File layout
 
 ```
 meetrec/
@@ -86,26 +142,24 @@ meetrec/
 ├── README.md
 └── Sources/MeetRec/
     ├── MeetRecApp.swift          # app entry, MenuBarExtra, hotkey wiring
-    ├── MenuBarView.swift         # SwiftUI menu UI
+    ├── MenuBarView.swift         # SwiftUI popover with level meters
     ├── RecordingEngine.swift     # orchestrator (ObservableObject)
     ├── SystemAudioCapture.swift  # ScreenCaptureKit-based system audio
     ├── MicrophoneCapture.swift   # AVAudioEngine
     ├── StereoWriter.swift        # AVAssetWriter + L/R interleave
     ├── HotKeyManager.swift       # Carbon global hotkeys
+    ├── AudioLevel.swift          # peak detection for meters
     └── Log.swift                 # file-based logger
 ```
 
-## Notes & limitations
+</details>
 
-- **No transcription**: by design. Feed the m4a to whatever ASR you prefer (Whisper, MacWhisper, Buzz, ChatGPT).
-- **No pause**: stop & restart creates a new file. Pause within a single file isn't supported in this MVP.
-- **Channel separation**: when transcribing, you can split L/R into two mono files and feed them separately for cleaner speaker attribution. `ffmpeg -i input.m4a -map_channel 0.0.0 left.m4a -map_channel 0.0.1 right.m4a`
-- **Screen Recording permission**: required by ScreenCaptureKit even for audio-only. No video is ever written to disk; the dummy 2×2 video stream is discarded inside `SCStream`.
-- **Output device switching mid-recording**: untested. Start playback first, then start recording.
+<details>
+<summary><strong>Why not Core Audio Process Taps?</strong></summary>
 
-## Why not Core Audio Process Taps?
+The Process Tap API (`AudioHardwareCreateProcessTap`, macOS 14.2+) is the "obvious" way to capture system audio. We tried it first. It works on built-in speakers and most output devices — but **silently fails when the default output is Bluetooth in HFP/SCO mode** (AirPods etc. while your app is also recording from the mic). In that case macOS switches the Bluetooth profile to the lower-bandwidth call mode, and the tap's IO proc never fires — `AudioDeviceStart` returns `noErr` but no callbacks come in. ScreenCaptureKit's audio path sits above CoreAudio's device routing and doesn't have this issue.
 
-The Process Tap API (`AudioHardwareCreateProcessTap`, macOS 14.2+) is the obvious choice for system-audio capture and what tools like Granola originally used. It works on most setups — except when the default output device is a Bluetooth headset (AirPods, Sony WH-1000XM, etc.) and your app is also recording from the microphone. In that case macOS switches Bluetooth to **HFP/SCO mode** (the lower-bandwidth call mode), and the tap silently stops receiving callbacks — `AudioDeviceStart` returns success but the IO proc never fires. ScreenCaptureKit doesn't have this problem because it sits above CoreAudio's device-routing layer.
+</details>
 
 ## License
 

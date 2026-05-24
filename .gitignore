@@ -11,6 +11,7 @@ DerivedData/
 
 # Build outputs
 MeetRec.app/
+MeetRec.app.zip
 *.dSYM/
 
 # macOS
