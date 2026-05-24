@@ -1,0 +1,21 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+
+# Build outputs
+MeetRec.app/
+*.dSYM/
+
+# macOS
+.DS_Store
+
+# Logs and recordings (in case anyone runs from this dir)
+*.log
+*.m4a
