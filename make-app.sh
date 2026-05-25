@@ -10,6 +10,12 @@ CONTENTS="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS}/MacOS"
 RES_DIR="${CONTENTS}/Resources"
 
+echo "→ Quitting any running MeetRec instance..."
+osascript -e 'tell application "MeetRec" to quit' >/dev/null 2>&1 || true
+# Give it a moment to flush and exit before we overwrite the binary.
+sleep 1
+pkill -x MeetRec 2>/dev/null || true
+
 echo "→ Building release binary..."
 swift build -c release
 
@@ -70,7 +76,20 @@ EOF
 echo "→ Ad-hoc signing..."
 codesign --force --deep --sign - "${APP_DIR}"
 
+# Ad-hoc signing produces a fresh code identity on every rebuild, so macOS TCC
+# treats the new binary as a different app from whatever it authorized before.
+# Reset the relevant TCC entries so the next launch shows the permission prompts
+# cleanly instead of silently failing with -3801 ("user declined TCCs").
+echo "→ Resetting TCC for ${BUNDLE_ID} (Screen Recording + Microphone)..."
+tccutil reset ScreenCapture "${BUNDLE_ID}" >/dev/null 2>&1 || true
+tccutil reset Microphone     "${BUNDLE_ID}" >/dev/null 2>&1 || true
+
 echo ""
 echo "✅ Done: ${APP_DIR}"
 echo ""
-echo "Double-click ${APP_DIR} to launch, or drag it to /Applications."
+echo "Next steps:"
+echo "  1. Launch ${APP_DIR} (or drag it to /Applications and launch from there)."
+echo "  2. Click record once — macOS will prompt for Microphone and Screen Recording."
+echo "  3. Approve both in System Settings → Privacy & Security."
+echo "  4. IMPORTANT: fully quit MeetRec (menu bar → Quit) and relaunch — screen"
+echo "     recording permission only takes effect on the next launch."
