@@ -1,7 +1,9 @@
 import Foundation
 import AVFoundation
 
-/// Writes a stereo AAC m4a where L = system audio, R = microphone.
+/// Writes a stereo AAC m4a where both channels carry the same mix of
+/// system audio + microphone (dual-mono), so playback sounds natural on
+/// headphones instead of one voice per ear.
 /// Heartbeat-driven: every 100ms we emit a stereo chunk, padding zeros
 /// for whichever side hasn't delivered samples. This way the recording
 /// continues even if one channel never produces buffers.
@@ -19,6 +21,8 @@ final class StereoWriter {
     private var micBuffer: [Float] = []
     private var systemConverter: AVAudioConverter?
     private var micConverter: AVAudioConverter?
+    private var systemSourceFormat: AVAudioFormat?
+    private var micSourceFormat: AVAudioFormat?
     private let workFormat: AVAudioFormat
 
     private var heartbeatTimer: DispatchSourceTimer?
@@ -29,6 +33,10 @@ final class StereoWriter {
 
     var systemMuted: Bool = false
     var micMuted: Bool = false
+
+    /// Linear gain applied to the mic before mixing. Adjustable without UI:
+    ///   defaults write com.local.meetrec MicGainDb -float 6
+    private let micGain: Float = pow(10, Float(UserDefaults.standard.double(forKey: "MicGainDb")) / 20)
 
     init(outputURL: URL) throws {
         self.outputURL = outputURL
@@ -81,6 +89,12 @@ final class StereoWriter {
             heartbeatTimer = nil
             heartbeat()  // final flush
             Log.write("writer finishing — systemBuffersIn=\(systemBuffersIn) micBuffersIn=\(micBuffersIn) flushesOut=\(flushesOut)")
+            guard writer.status == .writing else {
+                Log.write("writer already dead (status=\(writer.status.rawValue) err=\(writer.error?.localizedDescription ?? "nil")) — cancelling")
+                writer.cancelWriting()
+                completion()
+                return
+            }
             input.markAsFinished()
             writer.finishWriting {
                 Log.write("writer finished, status=\(self.writer.status.rawValue) err=\(self.writer.error?.localizedDescription ?? "nil")")
@@ -92,8 +106,11 @@ final class StereoWriter {
     func appendSystem(buffer: AVAudioPCMBuffer) {
         queue.async { [self] in
             systemBuffersIn += 1
-            if systemConverter == nil {
+            // The source format can change mid-recording (e.g. a capture
+            // fallback swaps implementations) — recreate the converter then.
+            if systemConverter == nil || systemSourceFormat?.isEqual(buffer.format) != true {
                 systemConverter = AVAudioConverter(from: buffer.format, to: workFormat)
+                systemSourceFormat = buffer.format
                 Log.write("system converter created from sr=\(buffer.format.sampleRate) ch=\(buffer.format.channelCount)")
             }
             guard let conv = systemConverter,
@@ -109,8 +126,9 @@ final class StereoWriter {
     func appendMic(buffer: AVAudioPCMBuffer) {
         queue.async { [self] in
             micBuffersIn += 1
-            if micConverter == nil {
+            if micConverter == nil || micSourceFormat?.isEqual(buffer.format) != true {
                 micConverter = AVAudioConverter(from: buffer.format, to: workFormat)
+                micSourceFormat = buffer.format
                 Log.write("mic converter created from sr=\(buffer.format.sampleRate) ch=\(buffer.format.channelCount)")
             }
             guard let conv = micConverter,
@@ -141,19 +159,27 @@ final class StereoWriter {
         var interleaved = [Float](repeating: 0, count: target * 2)
 
         let sysN = min(target, haveSystem)
-        for i in 0..<sysN {
-            interleaved[i * 2] = systemBuffer[i]
+        let micN = min(target, haveMic)
+        for i in 0..<target {
+            let sys = i < sysN ? systemBuffer[i] : 0
+            let mic = i < micN ? micBuffer[i] * micGain : 0
+            let mixed = Self.softClip(sys + mic)
+            interleaved[i * 2] = mixed
+            interleaved[i * 2 + 1] = mixed
         }
         if sysN > 0 { systemBuffer.removeFirst(sysN) }
-
-        let micN = min(target, haveMic)
-        for i in 0..<micN {
-            interleaved[i * 2 + 1] = micBuffer[i]
-        }
         if micN > 0 { micBuffer.removeFirst(micN) }
 
         guard let cmBuffer = makeCMSampleBuffer(from: interleaved, frameCount: target) else { return }
         while !input.isReadyForMoreMediaData {
+            // A failed writer never becomes ready — bail out instead of
+            // spinning forever and blocking this queue (finish() would hang).
+            guard writer.status == .writing else {
+                Log.write("writer no longer writing (status=\(writer.status.rawValue)) — dropping chunk")
+                heartbeatTimer?.cancel()
+                heartbeatTimer = nil
+                return
+            }
             Thread.sleep(forTimeInterval: 0.001)
         }
         let ok = input.append(cmBuffer)
@@ -166,6 +192,16 @@ final class StereoWriter {
         } else {
             Log.write("append FAILED, writer status=\(writer.status.rawValue) err=\(writer.error?.localizedDescription ?? "nil")")
         }
+    }
+
+    /// Linear below the knee; the overshoot is squeezed into the remaining
+    /// headroom so two simultaneously loud sources can't hard-clip.
+    private static func softClip(_ x: Float) -> Float {
+        let knee: Float = 0.95
+        let a = abs(x)
+        guard a > knee else { return x }
+        let squeezed = knee + (1 - knee) * tanh((a - knee) / (1 - knee))
+        return x < 0 ? -squeezed : squeezed
     }
 
     private func convert(buffer: AVAudioPCMBuffer, with converter: AVAudioConverter) -> [Float]? {
