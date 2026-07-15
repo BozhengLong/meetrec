@@ -3,100 +3,74 @@
 [![macOS](https://img.shields.io/badge/macOS-14.2%2B-blue)](https://www.apple.com/macos/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/BozhengLong/meetrec)](https://github.com/BozhengLong/meetrec/releases)
-[![Stars](https://img.shields.io/github/stars/BozhengLong/meetrec?style=social)](https://github.com/BozhengLong/meetrec/stargazers)
 
-**One-click meeting recorder that lives in your Mac's menu bar.** It records both sides of any meeting, call, or livestream — their voices and yours — into a single audio file on your disk. Everything stays local: no cloud, no account, no bot joining your call. Echo-cancelled, so recording on speakers works fine too.
+**One-click meeting recorder that lives in your Mac's menu bar.** It records both sides of any meeting, call, or livestream — their voices and yours — into a single audio file on your disk. Everything stays local: no cloud, no account, no bot joining your call.
+
+<img src="docs/popover.png" width="330" alt="MeetRec popover while recording — live level meters for system audio and microphone">
 
 ## Install
 
-Download `MeetRec.app.zip` from [Releases](https://github.com/BozhengLong/meetrec/releases), unzip, and drag `MeetRec.app` to `/Applications`.
+Download `MeetRec.app.zip` from [Releases](https://github.com/BozhengLong/meetrec/releases), unzip, drag `MeetRec.app` to `/Applications`.
 
-On first launch macOS will block it — the app is signed but not notarized by Apple (notarization requires a paid developer account). One-time fix, either way works:
+On first launch macOS blocks it (signed but not notarized). One-time fix, either way:
 
 - System Settings → Privacy & Security → scroll down → **Open Anyway**, or
 - `xattr -dr com.apple.quarantine /Applications/MeetRec.app`
 
-MeetRec then walks you through the two permissions it needs (see [Permissions](#permissions)).
-
-Prefer building from source? See [below](#building-from-source) — takes about a minute and skips the Gatekeeper step entirely.
+MeetRec then walks you through the two permissions it needs. Prefer building from source? [See below](#building-from-source) — no Gatekeeper step.
 
 ## What it does
 
-- 🎙️ Records **the whole conversation** — system audio and your microphone at the same time, not just your side
-- 🔊 **Echo cancellation, noise suppression, and auto gain** on the mic — recording on speakers doesn't pick up an echo of the other side, and fan/keyboard noise gets filtered
-- 🎧 **Natural playback** — both voices mixed into both ears, no "one person per ear" weirdness; works with AirPods
+- 🎙️ Records **the whole conversation** — system audio + microphone, mixed naturally into one m4a; works with AirPods
+- 🔊 **Echo cancellation, noise suppression, auto gain** on the mic — recording on speakers doesn't pick up an echo of the other side
 - 🔇 Mute either side live, with global hotkeys
-- 🚦 **Hard to misuse** — guides you through permissions on first launch, and warns loudly (alert + menu bar icon) if a recording is somehow missing system audio
-- 📊 Live level meters so you can see both sides are flowing; elapsed time right in the menu bar
-- 💾 Saves to `~/Recordings/YYYY-MM-DD_HHMM.m4a` and reveals the file in Finder when you stop
+- 🚦 Warns loudly (alert + menu bar icon) if a recording is somehow missing system audio — never a silent failure
+- 💾 Saves to `~/Recordings/YYYY-MM-DD_HHMM.m4a`, reveals in Finder on stop
 
-### Hotkeys
-
-| Combo | Action |
+| Hotkey | Action |
 |---|---|
 | `⌥⌘R` | Start / stop recording |
 | `⌥⌘M` | Toggle microphone |
 | `⌥⌘S` | Toggle system audio |
 
-## How it compares
-
-| | MeetRec | [Granola](https://www.granola.ai/) | [Audio Hijack](https://rogueamoeba.com/audiohijack/) | [BlackHole](https://github.com/ExistentialAudio/BlackHole) + OBS |
-|---|---|---|---|---|
-| Price | Free | Subscription | $64 one-time | Free |
-| Local-only | ✅ | ❌ (cloud transcription) | ✅ | ✅ |
-| Needs virtual audio driver | ✅ no | ✅ no | ✅ no | ❌ yes |
-| Built-in transcription | ❌ (BYO Whisper) | ✅ | ❌ | ❌ |
-| Open source | ✅ | ❌ | ❌ | ✅ (BlackHole only) |
-| Setup | download & open | install | install | multi-step routing |
-
-(None of these join your meeting as a bot, and all of them work with AirPods.)
-
-If you want auto-summarized meeting notes with live transcript, use Granola. If you want a full audio production suite, use Audio Hijack. **If you just want a clean local recording that you'll feed into Whisper/ChatGPT yourself, that's what MeetRec is.**
-
 ## After recording
 
-MeetRec deliberately stops at "make a clean audio file." Transcribe with whatever you prefer:
+MeetRec deliberately stops at "make a clean audio file" — no built-in transcription. Feed the m4a to [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper), [Buzz](https://github.com/chidiwilliams/buzz), ChatGPT, or:
 
 ```bash
 whisper-cli -m models/ggml-large-v3.bin -f 2026-05-24_1430.m4a -l zh
 ```
 
-Or just drag the m4a into [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper), [Buzz](https://github.com/chidiwilliams/buzz), or ChatGPT. Both channels carry the same mix, so any tool works; speaker separation is your transcriber's diarization job.
+Both channels carry the same mix; speaker separation is your transcriber's diarization job.
 
-## Permissions
-
-Two one-time permissions. MeetRec detects what's missing at launch and guides you through it:
-
-| Permission | Why |
-|---|---|
-| Microphone | Records your voice |
-| Screen Recording | macOS gates system-audio capture behind it. **No video is ever saved** |
-
-If recordings ever come out with your voice only, the in-app warning will point you to the fix. Last resort if things get stuck:
+<details>
+<summary><strong>Optional tweaks</strong></summary>
 
 ```bash
-tccutil reset ScreenCapture com.local.meetrec
-```
-
-then relaunch MeetRec and re-grant.
-
-### Tweaks (optional)
-
-```bash
-# Your own voice too quiet/loud in the mix? Adjust mic gain in dB (default 0):
+# Your own voice too quiet/loud in the mix? Mic gain in dB (default 0):
 defaults write com.local.meetrec MicGainDb -float 6
 
 # Prefer the raw, unprocessed mic sound? Turn off echo cancellation & co:
 defaults write com.local.meetrec DisableAEC -bool true
 ```
 
+</details>
+
+## Permissions
+
+| Permission | Why |
+|---|---|
+| Microphone | Records your voice |
+| Screen Recording | macOS gates system-audio capture behind it. **No video is ever saved** |
+
+MeetRec detects what's missing at launch and guides you. If things ever get stuck, the last resort is `tccutil reset ScreenCapture com.local.meetrec`, then relaunch and re-grant.
+
 ## Known limitations
 
-- **No transcription** — by design. Feed the m4a to whatever ASR you prefer.
-- **No pause within a single file** — stop & restart creates a new file.
-- **Prebuilt app is Apple Silicon only.** Intel Macs: [build from source](#building-from-source).
-- **Signed but not notarized** — first launch needs the one-time Gatekeeper step (see Install).
-- **Switching the output device mid-recording** is untested; switching the input device mid-recording keeps capturing from the original mic (by design).
+- **No pause** — stop & restart creates a new file
+- **Prebuilt app is Apple Silicon only** — Intel Macs: build from source
+- **Not notarized** — first launch needs the one-time Gatekeeper step (see Install)
+- **Switching the output device mid-recording** is untested; switching the input device mid-recording keeps capturing from the original mic (by design)
 
 ## Building from source
 
@@ -106,11 +80,9 @@ Requires macOS 14.2+ and an Xcode 15+ / Swift 5.9+ toolchain.
 git clone https://github.com/BozhengLong/meetrec.git
 cd meetrec
 ./make-app.sh         # → ./MeetRec.app
-# or, just the binary:
-swift build -c release
 ```
 
-Locally built apps aren't quarantined, so there's no Gatekeeper prompt. If you have an Apple Development certificate, `make-app.sh` signs with it automatically — your permission grants then survive rebuilds.
+Locally built apps aren't quarantined, so there's no Gatekeeper prompt. With an Apple Development certificate present, `make-app.sh` signs with it automatically and your permission grants survive rebuilds.
 
 <details>
 <summary><strong>Architecture</strong></summary>
