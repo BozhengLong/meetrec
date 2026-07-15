@@ -239,14 +239,20 @@ final class VoiceProcessingMicCapture {
     }
 
     private func installDeviceListener() {
-        let block: AudioObjectPropertyListenerBlock = { _, _ in
+        // The block checks `stopped` itself: block-identity matching in
+        // AudioObjectRemovePropertyListenerBlock is unreliable across the
+        // Swift/ObjC bridge, so removal can silently fail — the guard keeps
+        // a leaked listener silent after stop.
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            guard let self, !(self.stateLock.withLock { self.stopped }) else { return }
             Log.write("vp: default input device changed mid-recording — still recording from the bound device (follow-the-default is future work)")
         }
         deviceListenerBlock = block
-        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
-                                            &deviceListenerAddress,
-                                            DispatchQueue.global(qos: .utility),
-                                            block)
+        let status = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
+                                                         &deviceListenerAddress,
+                                                         DispatchQueue.global(qos: .utility),
+                                                         block)
+        if status != noErr { Log.write("vp: device listener install failed status=\(status)") }
     }
 
     // MARK: - Input path (realtime thread)
@@ -294,10 +300,11 @@ final class VoiceProcessingMicCapture {
 
     private func tearDown() {
         if let block = deviceListenerBlock {
-            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
-                                                   &deviceListenerAddress,
-                                                   DispatchQueue.global(qos: .utility),
-                                                   block)
+            let status = AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
+                                                                &deviceListenerAddress,
+                                                                DispatchQueue.global(qos: .utility),
+                                                                block)
+            if status != noErr { Log.write("vp: device listener remove failed status=\(status)") }
             deviceListenerBlock = nil
         }
         guard let unit else { return }
