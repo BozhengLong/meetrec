@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/BozhengLong/meetrec)](https://github.com/BozhengLong/meetrec/releases)
 
+**English** | [简体中文](README.zh-CN.md)
+
 **One-click meeting recorder that lives in your Mac's menu bar.** It records both sides of any meeting, call, or livestream — their voices and yours — into a single audio file on your disk. Everything stays local: no cloud, no account, no bot joining your call.
 
 <img src="docs/popover.png" width="330" alt="MeetRec popover while recording — live level meters for system audio and microphone">
