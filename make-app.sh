@@ -73,16 +73,26 @@ cat > "${CONTENTS}/Info.plist" <<EOF
 </plist>
 EOF
 
-echo "→ Ad-hoc signing..."
-codesign --force --deep --sign - "${APP_DIR}"
+# Prefer a real signing identity: TCC tracks it by stable identity, so
+# permissions survive rebuilds. Ad-hoc fallback gets a fresh code identity
+# every build, which makes TCC forget the app each time.
+SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')"
 
-# Ad-hoc signing produces a fresh code identity on every rebuild, so macOS TCC
-# treats the new binary as a different app from whatever it authorized before.
-# Reset the relevant TCC entries so the next launch shows the permission prompts
-# cleanly instead of silently failing with -3801 ("user declined TCCs").
-echo "→ Resetting TCC for ${BUNDLE_ID} (Screen Recording + Microphone)..."
-tccutil reset ScreenCapture "${BUNDLE_ID}" >/dev/null 2>&1 || true
-tccutil reset Microphone     "${BUNDLE_ID}" >/dev/null 2>&1 || true
+if [ -n "${SIGN_ID}" ]; then
+    echo "→ Signing with \"${SIGN_ID}\"..."
+    codesign --force --deep --sign "${SIGN_ID}" "${APP_DIR}"
+else
+    echo "→ No signing identity found — ad-hoc signing (TCC will forget permissions on every rebuild)..."
+    codesign --force --deep --sign - "${APP_DIR}"
+    # Ad-hoc signing produces a fresh code identity on every rebuild, so macOS TCC
+    # treats the new binary as a different app from whatever it authorized before.
+    # Reset the relevant TCC entries so the next launch shows the permission prompts
+    # cleanly instead of silently failing with -3801 ("user declined TCCs").
+    echo "→ Resetting TCC for ${BUNDLE_ID} (Screen Recording + Microphone)..."
+    tccutil reset ScreenCapture "${BUNDLE_ID}" >/dev/null 2>&1 || true
+    tccutil reset Microphone     "${BUNDLE_ID}" >/dev/null 2>&1 || true
+fi
 
 echo ""
 echo "✅ Done: ${APP_DIR}"
@@ -93,3 +103,5 @@ echo "  2. Click record once — macOS will prompt for Microphone and Screen Rec
 echo "  3. Approve both in System Settings → Privacy & Security."
 echo "  4. IMPORTANT: fully quit MeetRec (menu bar → Quit) and relaunch — screen"
 echo "     recording permission only takes effect on the next launch."
+echo "  (With a real signing identity, permissions persist across rebuilds"
+echo "   after this one-time setup.)"

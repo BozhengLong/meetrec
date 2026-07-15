@@ -5,7 +5,7 @@
 [![Latest release](https://img.shields.io/github/v/release/BozhengLong/meetrec)](https://github.com/BozhengLong/meetrec/releases)
 [![Stars](https://img.shields.io/github/stars/BozhengLong/meetrec?style=social)](https://github.com/BozhengLong/meetrec/stargazers)
 
-**Record meetings, livestreams, and calls on macOS — locally, into a single stereo M4A file.** Left channel is system audio, right channel is your microphone. No cloud. No bot in your meeting. No virtual audio driver. Works with AirPods.
+**Record meetings, livestreams, and calls on macOS — locally, into a single stereo M4A file.** System audio and your microphone are mixed into both channels, with echo cancellation so speaker playback doesn't bleed into the mic. No cloud. No bot in your meeting. No virtual audio driver. Works with AirPods.
 
 <!-- TODO: replace this line with a short demo gif -->
 > _Demo gif coming soon — menu bar icon, hotkey muting mic, file appearing in Finder._
@@ -28,8 +28,9 @@ Or grab the prebuilt zip from [Releases](https://github.com/BozhengLong/meetrec/
 ## What it does
 
 - 🎙️ Captures **system audio** (via ScreenCaptureKit) + **microphone** (via AVAudioEngine) simultaneously
-- 🎚️ Stereo M4A output: **L = system, R = mic** — separated for clean transcription downstream
-- 🔇 Independent per-channel mute, real-time, with global hotkeys
+- 🎚️ M4A output with **both sources mixed into both channels** (dual-mono) — natural on headphones, soft-clip protected
+- 🔊 **Echo cancellation + noise suppression + AGC** via direct AUVoiceIO — recording on speakers doesn't capture the speaker's echo; auto-falls back to plain capture if voice processing misbehaves (`defaults write com.local.meetrec DisableAEC -bool true` to opt out)
+- 🔇 Independent per-source mute, real-time, with global hotkeys
 - 📊 Live level meters in the popover so you can see audio is actually flowing
 - ⏱️ Recording time visible right in the menu bar (no need to click)
 - 🎧 **Works with AirPods** and other Bluetooth output, unlike Process-Tap–based tools
@@ -63,22 +64,22 @@ If you want auto-summarized meeting notes with live transcript, use Granola. If 
 MeetRec deliberately stops at "make a clean audio file." Transcribe with whatever you prefer:
 
 ```bash
-# Split L (system) and R (mic) into two mono files for cleaner transcription
-ffmpeg -i 2026-05-24_1430.m4a \
-  -map_channel 0.0.0 system.m4a \
-  -map_channel 0.0.1 mic.m4a
-
-# Then transcribe each side
-whisper-cli -m models/ggml-large-v3.bin -f system.wav -l zh
+whisper-cli -m models/ggml-large-v3.bin -f 2026-05-24_1430.m4a -l zh
 ```
 
-Or just drag the m4a into [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper), [Buzz](https://github.com/chidiwilliams/buzz), or ChatGPT.
+Or just drag the m4a into [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper), [Buzz](https://github.com/chidiwilliams/buzz), or ChatGPT. Both channels carry the same mix, so any mono-or-stereo tool works; speaker separation is your transcriber's diarization job.
+
+If your own voice consistently sounds too quiet (or too loud) relative to the meeting, adjust the mic gain (in dB, default 0):
+
+```bash
+defaults write com.local.meetrec MicGainDb -float 6
+```
 
 ## Permissions you'll be asked for
 
 | Permission | Why |
 |---|---|
-| Microphone | Records your voice into the right channel |
+| Microphone | Records your voice |
 | Screen Recording | ScreenCaptureKit needs it to capture system audio. **No video is ever saved** — the dummy 2×2 video stream is discarded |
 
 If you only see the mic side recorded and `~/Recordings/meetrec.log` contains `SCShareableContent FAILED ... declined TCCs`, the Screen Recording permission is denied. Open **System Settings → Privacy & Security → Screen Recording**, enable MeetRec, then fully quit and relaunch. If MeetRec doesn't appear in the list at all (macOS suppressing the prompt after a previous denial), reset and try again:
@@ -127,8 +128,9 @@ swift build -c release
 ```
 
 - `SystemAudioCapture` — wraps `SCStream` with `capturesAudio=true` and a minimal 2×2 video stream that's discarded inside SCKit.
-- `MicrophoneCapture` — `AVAudioEngine.inputNode` with a tap, requests permission explicitly via `AVCaptureDevice.requestAccess`.
-- `StereoWriter` — own dispatch queue, two mono Float32 ring buffers, every 100ms emits a stereo interleaved chunk through `AVAssetWriter`. Mute = append zeros instead of samples; the timeline stays aligned, no click/pop.
+- `MicrophoneCapture` — facade: tries `VoiceProcessingMicCapture` (direct AUVoiceIO: AEC + noise suppression + AGC) first, with a 3s zero-buffer watchdog that swaps in a fresh plain `AVAudioEngine` capture so the mic is never silently lost. (AVAudioEngine's own `setVoiceProcessingEnabled` is a dead end for tap-only capture — see the notes in the source.)
+- `VoiceProcessingMicCapture` — low-level `kAudioUnitSubType_VoiceProcessingIO` setup: silence render callback on the output element (required to drive the input side), ducking configured to minimum so recorded system audio isn't attenuated, client format follows the unit's own sample rate.
+- `StereoWriter` — own dispatch queue, two mono Float32 ring buffers, every 100ms mixes both sources (mic gain + soft clip) and emits a dual-mono stereo chunk through `AVAssetWriter`. Mute = append zeros instead of samples; the timeline stays aligned, no click/pop.
 - `HotKeyManager` — Carbon `RegisterEventHotKey`, no dependencies.
 - `AudioLevel` — peak-detection over PCM buffers for the level meters.
 
@@ -145,8 +147,9 @@ meetrec/
     ├── MenuBarView.swift         # SwiftUI popover with level meters
     ├── RecordingEngine.swift     # orchestrator (ObservableObject)
     ├── SystemAudioCapture.swift  # ScreenCaptureKit-based system audio
-    ├── MicrophoneCapture.swift   # AVAudioEngine
-    ├── StereoWriter.swift        # AVAssetWriter + L/R interleave
+    ├── MicrophoneCapture.swift   # facade: AEC-first + plain fallback
+    ├── VoiceProcessingMicCapture.swift # low-level AUVoiceIO (AEC/NS/AGC)
+    ├── StereoWriter.swift        # AVAssetWriter + dual-mono mixdown
     ├── HotKeyManager.swift       # Carbon global hotkeys
     ├── AudioLevel.swift          # peak detection for meters
     └── Log.swift                 # file-based logger

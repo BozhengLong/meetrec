@@ -8,6 +8,13 @@ final class RecordingEngine: ObservableObject {
 
     @Published private(set) var isRecording = false
     @Published private(set) var elapsed: TimeInterval = 0
+    /// True while startAsync is in flight. Starting takes seconds now (AEC
+    /// init), and hotkey auto-repeat can fire toggle() many times in that
+    /// window — without this guard each call spawns a full capture pipeline.
+    private var isStarting = false
+    /// Debounce: Carbon hotkeys fire repeatedly (~150ms) while held, which
+    /// would stop a recording right after starting it.
+    private var lastToggle = Date.distantPast
     @Published var systemMuted = false {
         didSet { writer?.systemMuted = systemMuted }
     }
@@ -33,9 +40,18 @@ final class RecordingEngine: ObservableObject {
     }
 
     func toggle() {
+        guard Date().timeIntervalSince(lastToggle) > 1.0 else {
+            Log.write("toggle ignored — debounced")
+            return
+        }
+        lastToggle = Date()
         if isRecording {
             stop()
         } else {
+            guard !isStarting else {
+                Log.write("toggle ignored — start already in progress")
+                return
+            }
             Task {
                 do { try await startAsync() } catch {
                     Log.write("failed to start — \(error)")
@@ -46,7 +62,9 @@ final class RecordingEngine: ObservableObject {
     }
 
     func startAsync() async throws {
-        guard !isRecording else { return }
+        guard !isRecording, !isStarting else { return }
+        isStarting = true
+        defer { isStarting = false }
 
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmm"
@@ -107,11 +125,19 @@ final class RecordingEngine: ObservableObject {
         guard isRecording else { return }
         let outputURL = lastOutputURL
         let sys = systemCapture
+        let mic = micCapture
 
         Task {
             await sys?.stop()
         }
-        micCapture?.stop()
+        // AUVoiceIO teardown can block for a long time. Keep mic stop off the
+        // main thread and never let the writer finalization wait on it —
+        // otherwise the UI freezes and the m4a never gets its moov atom.
+        Task.detached {
+            guard let mic else { return }
+            Log.write("stopping mic engine (background)")
+            mic.stop()
+        }
         writer?.finish { [weak self] in
             DispatchQueue.main.async {
                 self?.cleanup()
