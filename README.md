@@ -31,6 +31,7 @@ Or grab the prebuilt zip from [Releases](https://github.com/BozhengLong/meetrec/
 - 🎚️ M4A output with **both sources mixed into both channels** (dual-mono) — natural on headphones, soft-clip protected
 - 🔊 **Echo cancellation + noise suppression + AGC** via direct AUVoiceIO — recording on speakers doesn't capture the speaker's echo; auto-falls back to plain capture if voice processing misbehaves (`defaults write com.local.meetrec DisableAEC -bool true` to opt out)
 - 🔇 Independent per-source mute, real-time, with global hotkeys
+- 🚦 **Guided permission setup** — detects missing or stale Screen Recording grants at launch, and warns loudly (alert + warning icon in the menu bar) if a recording is running mic-only
 - 📊 Live level meters in the popover so you can see audio is actually flowing
 - ⏱️ Recording time visible right in the menu bar (no need to click)
 - 🎧 **Works with AirPods** and other Bluetooth output, unlike Process-Tap–based tools

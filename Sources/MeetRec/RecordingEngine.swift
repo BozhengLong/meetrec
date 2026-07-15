@@ -24,6 +24,10 @@ final class RecordingEngine: ObservableObject {
     @Published private(set) var lastOutputURL: URL?
     @Published private(set) var systemLevel: Float = 0
     @Published private(set) var micLevel: Float = 0
+    /// True while a recording is running WITHOUT system audio (permission
+    /// missing/stale). Surfaced in the popover and menu bar icon — a meeting
+    /// recorded without the other side must never be a silent failure.
+    @Published private(set) var systemAudioFailed = false
 
     private var systemCapture: SystemAudioCapture?
     private var micCapture: MicrophoneCapture?
@@ -104,6 +108,10 @@ final class RecordingEngine: ObservableObject {
             self.systemCapture = sys
         } catch {
             Log.write("system audio capture FAILED — \(error). Continuing with mic-only.")
+            systemAudioFailed = true
+            // Alert after start completes so the recording state isn't held
+            // hostage by the modal.
+            Task { @MainActor [weak self] in self?.alertSystemAudioFailure() }
         }
 
         let start = Date()
@@ -148,6 +156,25 @@ final class RecordingEngine: ObservableObject {
         }
     }
 
+    private func alertSystemAudioFailure() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "System audio is NOT being recorded"
+        alert.informativeText = """
+        This recording will contain the microphone only.
+
+        The Screen Recording permission is missing or stale (common after \
+        upgrading MeetRec). Open System Settings, toggle MeetRec off and \
+        back on under Screen Recording, then fully quit and relaunch.
+        """
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Continue Mic-Only")
+        if alert.runModal() == .alertFirstButtonReturn {
+            ScreenRecordingPermission.openSettings()
+        }
+    }
+
     private func cleanup() {
         timer?.invalidate()
         timer = nil
@@ -159,5 +186,6 @@ final class RecordingEngine: ObservableObject {
         systemLevel = 0
         micLevel = 0
         isRecording = false
+        systemAudioFailed = false
     }
 }
