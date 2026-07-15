@@ -5,37 +5,30 @@
 [![Latest release](https://img.shields.io/github/v/release/BozhengLong/meetrec)](https://github.com/BozhengLong/meetrec/releases)
 [![Stars](https://img.shields.io/github/stars/BozhengLong/meetrec?style=social)](https://github.com/BozhengLong/meetrec/stargazers)
 
-**Record meetings, livestreams, and calls on macOS — locally, into a single stereo M4A file.** System audio and your microphone are mixed into both channels, with echo cancellation so speaker playback doesn't bleed into the mic. No cloud. No bot in your meeting. No virtual audio driver. Works with AirPods.
-
-<!-- TODO: replace this line with a short demo gif -->
-> _Demo gif coming soon — menu bar icon, hotkey muting mic, file appearing in Finder._
+**One-click meeting recorder that lives in your Mac's menu bar.** It records both sides of any meeting, call, or livestream — their voices and yours — into a single audio file on your disk. Everything stays local: no cloud, no account, no bot joining your call. Echo-cancelled, so recording on speakers works fine too.
 
 ## Install
 
-```bash
-git clone https://github.com/BozhengLong/meetrec.git
-cd meetrec
-./make-app.sh
-```
+Download `MeetRec.app.zip` from [Releases](https://github.com/BozhengLong/meetrec/releases), unzip, and drag `MeetRec.app` to `/Applications`.
 
-Drag `MeetRec.app` to `/Applications` and double-click. On first launch macOS will block it (ad-hoc signed), so either:
+On first launch macOS will block it — the app is signed but not notarized by Apple (notarization requires a paid developer account). One-time fix, either way works:
 
-- System Settings → Privacy & Security → **Open Anyway**, or
+- System Settings → Privacy & Security → scroll down → **Open Anyway**, or
 - `xattr -dr com.apple.quarantine /Applications/MeetRec.app`
 
-Or grab the prebuilt zip from [Releases](https://github.com/BozhengLong/meetrec/releases) and do the same.
+MeetRec then walks you through the two permissions it needs (see [Permissions](#permissions)).
+
+Prefer building from source? See [below](#building-from-source) — takes about a minute and skips the Gatekeeper step entirely.
 
 ## What it does
 
-- 🎙️ Captures **system audio** (via ScreenCaptureKit) + **microphone** (via AVAudioEngine) simultaneously
-- 🎚️ M4A output with **both sources mixed into both channels** (dual-mono) — natural on headphones, soft-clip protected
-- 🔊 **Echo cancellation + noise suppression + AGC** via direct AUVoiceIO — recording on speakers doesn't capture the speaker's echo; auto-falls back to plain capture if voice processing misbehaves (`defaults write com.local.meetrec DisableAEC -bool true` to opt out)
-- 🔇 Independent per-source mute, real-time, with global hotkeys
-- 🚦 **Guided permission setup** — detects missing or stale Screen Recording grants at launch, and warns loudly (alert + warning icon in the menu bar) if a recording is running mic-only
-- 📊 Live level meters in the popover so you can see audio is actually flowing
-- ⏱️ Recording time visible right in the menu bar (no need to click)
-- 🎧 **Works with AirPods** and other Bluetooth output, unlike Process-Tap–based tools
-- 💾 Saves to `~/Recordings/YYYY-MM-DD_HHMM.m4a`, opens Finder on stop
+- 🎙️ Records **the whole conversation** — system audio and your microphone at the same time, not just your side
+- 🔊 **Echo cancellation, noise suppression, and auto gain** on the mic — recording on speakers doesn't pick up an echo of the other side, and fan/keyboard noise gets filtered
+- 🎧 **Natural playback** — both voices mixed into both ears, no "one person per ear" weirdness; works with AirPods
+- 🔇 Mute either side live, with global hotkeys
+- 🚦 **Hard to misuse** — guides you through permissions on first launch, and warns loudly (alert + menu bar icon) if a recording is somehow missing system audio
+- 📊 Live level meters so you can see both sides are flowing; elapsed time right in the menu bar
+- 💾 Saves to `~/Recordings/YYYY-MM-DD_HHMM.m4a` and reveals the file in Finder when you stop
 
 ### Hotkeys
 
@@ -51,12 +44,12 @@ Or grab the prebuilt zip from [Releases](https://github.com/BozhengLong/meetrec/
 |---|---|---|---|---|
 | Price | Free | Subscription | $64 one-time | Free |
 | Local-only | ✅ | ❌ (cloud transcription) | ✅ | ✅ |
-| Joins meeting as bot | ✅ no | ✅ no | ✅ no | ✅ no |
 | Needs virtual audio driver | ✅ no | ✅ no | ✅ no | ❌ yes |
-| Works with AirPods | ✅ | ✅ | ✅ | ✅ |
 | Built-in transcription | ❌ (BYO Whisper) | ✅ | ❌ | ❌ |
 | Open source | ✅ | ❌ | ❌ | ✅ (BlackHole only) |
-| Setup complexity | one script | install | install | multi-step routing |
+| Setup | download & open | install | install | multi-step routing |
+
+(None of these join your meeting as a bot, and all of them work with AirPods.)
 
 If you want auto-summarized meeting notes with live transcript, use Granola. If you want a full audio production suite, use Audio Hijack. **If you just want a clean local recording that you'll feed into Whisper/ChatGPT yourself, that's what MeetRec is.**
 
@@ -68,43 +61,46 @@ MeetRec deliberately stops at "make a clean audio file." Transcribe with whateve
 whisper-cli -m models/ggml-large-v3.bin -f 2026-05-24_1430.m4a -l zh
 ```
 
-Or just drag the m4a into [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper), [Buzz](https://github.com/chidiwilliams/buzz), or ChatGPT. Both channels carry the same mix, so any mono-or-stereo tool works; speaker separation is your transcriber's diarization job.
+Or just drag the m4a into [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper), [Buzz](https://github.com/chidiwilliams/buzz), or ChatGPT. Both channels carry the same mix, so any tool works; speaker separation is your transcriber's diarization job.
 
-If your own voice consistently sounds too quiet (or too loud) relative to the meeting, adjust the mic gain (in dB, default 0):
+## Permissions
 
-```bash
-defaults write com.local.meetrec MicGainDb -float 6
-```
-
-## Permissions you'll be asked for
+Two one-time permissions. MeetRec detects what's missing at launch and guides you through it:
 
 | Permission | Why |
 |---|---|
 | Microphone | Records your voice |
-| Screen Recording | ScreenCaptureKit needs it to capture system audio. **No video is ever saved** — the dummy 2×2 video stream is discarded |
+| Screen Recording | macOS gates system-audio capture behind it. **No video is ever saved** |
 
-If you only see the mic side recorded and `~/Recordings/meetrec.log` contains `SCShareableContent FAILED ... declined TCCs`, the Screen Recording permission is denied. Open **System Settings → Privacy & Security → Screen Recording**, enable MeetRec, then fully quit and relaunch. If MeetRec doesn't appear in the list at all (macOS suppressing the prompt after a previous denial), reset and try again:
+If recordings ever come out with your voice only, the in-app warning will point you to the fix. Last resort if things get stuck:
 
 ```bash
 tccutil reset ScreenCapture com.local.meetrec
 ```
 
-This is most likely to happen after rebuilding from source — re-signing changes the app identity and TCC may silently remember a stale "denied" state.
+then relaunch MeetRec and re-grant.
+
+### Tweaks (optional)
+
+```bash
+# Your own voice too quiet/loud in the mix? Adjust mic gain in dB (default 0):
+defaults write com.local.meetrec MicGainDb -float 6
+
+# Prefer the raw, unprocessed mic sound? Turn off echo cancellation & co:
+defaults write com.local.meetrec DisableAEC -bool true
+```
 
 ## Known limitations
 
 - **No transcription** — by design. Feed the m4a to whatever ASR you prefer.
 - **No pause within a single file** — stop & restart creates a new file.
-- **Switching the system output device mid-recording** is untested. Start playback first, then start recording.
-- **Ad-hoc signed**, not Apple-notarized. First launch needs a Gatekeeper override (see Install above).
+- **Prebuilt app is Apple Silicon only.** Intel Macs: [build from source](#building-from-source).
+- **Signed but not notarized** — first launch needs the one-time Gatekeeper step (see Install).
+- **Switching the output device mid-recording** is untested; switching the input device mid-recording keeps capturing from the original mic (by design).
 
-## Requirements
+## Building from source
 
-- macOS **14.2** or later
-- Apple Silicon or Intel Mac
-- Xcode 15+ / Swift 5.9+ toolchain (for building from source)
-
-## Build from source
+Requires macOS 14.2+ and an Xcode 15+ / Swift 5.9+ toolchain.
 
 ```bash
 git clone https://github.com/BozhengLong/meetrec.git
@@ -114,13 +110,15 @@ cd meetrec
 swift build -c release
 ```
 
+Locally built apps aren't quarantined, so there's no Gatekeeper prompt. If you have an Apple Development certificate, `make-app.sh` signs with it automatically — your permission grants then survive rebuilds.
+
 <details>
 <summary><strong>Architecture</strong></summary>
 
 ```
 ┌──────────────────────────────────┐
 │  SCStream (capturesAudio=true)   │  ← system audio
-│  AVAudioEngine.inputNode         │  ← microphone
+│  AUVoiceIO / AVAudioEngine       │  ← microphone (AEC + NS + AGC)
 │      ↓ (independent callbacks)   │
 │  StereoWriter                    │  ← heartbeat-flushed every 100ms,
 │      ↓                           │     pads silence for the muted side
@@ -132,6 +130,7 @@ swift build -c release
 - `MicrophoneCapture` — facade: tries `VoiceProcessingMicCapture` (direct AUVoiceIO: AEC + noise suppression + AGC) first, with a 3s zero-buffer watchdog that swaps in a fresh plain `AVAudioEngine` capture so the mic is never silently lost. (AVAudioEngine's own `setVoiceProcessingEnabled` is a dead end for tap-only capture — see the notes in the source.)
 - `VoiceProcessingMicCapture` — low-level `kAudioUnitSubType_VoiceProcessingIO` setup: silence render callback on the output element (required to drive the input side), ducking configured to minimum so recorded system audio isn't attenuated, client format follows the unit's own sample rate.
 - `StereoWriter` — own dispatch queue, two mono Float32 ring buffers, every 100ms mixes both sources (mic gain + soft clip) and emits a dual-mono stereo chunk through `AVAssetWriter`. Mute = append zeros instead of samples; the timeline stays aligned, no click/pop.
+- `ScreenRecordingPermission` — launch preflight (`CGPreflightScreenCaptureAccess`), guided Settings deep-link, grant polling, one-click relaunch.
 - `HotKeyManager` — Carbon `RegisterEventHotKey`, no dependencies.
 - `AudioLevel` — peak-detection over PCM buffers for the level meters.
 
@@ -150,6 +149,7 @@ meetrec/
     ├── SystemAudioCapture.swift  # ScreenCaptureKit-based system audio
     ├── MicrophoneCapture.swift   # facade: AEC-first + plain fallback
     ├── VoiceProcessingMicCapture.swift # low-level AUVoiceIO (AEC/NS/AGC)
+    ├── ScreenRecordingPermission.swift # launch preflight + guided setup
     ├── StereoWriter.swift        # AVAssetWriter + dual-mono mixdown
     ├── HotKeyManager.swift       # Carbon global hotkeys
     ├── AudioLevel.swift          # peak detection for meters
