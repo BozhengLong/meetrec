@@ -19,6 +19,19 @@ struct MenuBarView: View {
                 level: engine.systemLevel
             )
 
+            if engine.systemAudioFailed {
+                HStack(spacing: 4) {
+                    Label("No permission — recording mic only", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                    Spacer()
+                    Button("Fix…") { ScreenRecordingPermission.openSettings() }
+                        .font(.caption2)
+                        .buttonStyle(.link)
+                }
+                .padding(.leading, 22)
+            }
+
             channelRow(
                 icon: "mic",
                 label: "Microphone",
@@ -49,6 +62,11 @@ struct MenuBarView: View {
             Divider()
 
             HStack {
+                if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+                    Text("v\(version)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
                 Spacer()
                 Button("Quit MeetRec") { NSApp.terminate(nil) }
                     .keyboardShortcut("q")

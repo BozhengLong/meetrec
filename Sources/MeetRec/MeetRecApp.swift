@@ -10,6 +10,13 @@ struct MeetRecApp: App {
         // Hide dock icon — this is a menu-bar-only app.
         NSApplication.shared.setActivationPolicy(.accessory)
         Log.reset()
+        // Preflight Screen Recording access shortly after launch so missing
+        // or stale (post-upgrade) grants get guided fix-up before the first
+        // recording silently loses system audio.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            ScreenRecordingPermission.checkAtLaunch()
+        }
     }
 
     var body: some Scene {
@@ -31,6 +38,9 @@ struct MeetRecApp: App {
 
     private var iconName: String {
         guard engine.isRecording else { return "record.circle" }
+        // A recording missing system audio outranks mute states — the user
+        // must notice before the meeting ends.
+        if engine.systemAudioFailed { return "exclamationmark.circle.fill" }
         switch (engine.systemMuted, engine.micMuted) {
         case (false, false): return "record.circle.fill"
         case (false, true):  return "mic.slash.circle.fill"
