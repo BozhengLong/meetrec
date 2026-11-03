@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var cancellable: AnyCancellable?
+    private var shownIcon = ""
+    private var shownTitle: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -28,6 +30,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.engine = engine
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // The status item shares AppKit's default autosave name ("Item-0") with
+        // the old MenuBarExtra build, so a persisted "hidden" state from that
+        // build's spurious removal event could keep it invisible. This app has
+        // no other UI, so always come back visible on launch.
+        item.isVisible = true
+        // Fixed-width digits so the running timer doesn't shift the menu bar.
+        item.button?.font = .monospacedDigitSystemFont(
+            ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)
+        item.button?.imagePosition = .imageLeading
         item.button?.target = self
         item.button?.action = #selector(togglePopover)
         statusItem = item
@@ -58,6 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            // Clicking a status item doesn't activate an LSUIElement app; without
+            // this, keystrokes (Return to record, ⌘Q) go to the frontmost app.
+            NSApp.activate()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
@@ -65,9 +79,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
-        button.imagePosition = .imageLeading
-        button.title = engine.isRecording ? " " + timeString(engine.elapsed) : ""
+        // The engine publishes ~60×/s while recording (timer + level meters);
+        // only touch the button when what it shows actually changes.
+        let icon = iconName
+        let title = engine.isRecording ? " " + timeString(engine.elapsed) : ""
+        if icon != shownIcon {
+            button.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+            shownIcon = icon
+        }
+        if title != shownTitle {
+            button.title = title
+            shownTitle = title
+        }
     }
 
     private var iconName: String {

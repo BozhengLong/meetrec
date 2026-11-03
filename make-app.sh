@@ -4,12 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="MeetRec"
-# Renamed from com.local.meetrec: that identifier was used by an earlier
-# MenuBarExtra-based build, and macOS left behind a stale status-item/scene
-# registration for it that silently suppressed the status item on every
-# later launch (even after switching to a plain NSStatusItem). Don't revert
-# to the old ID without expecting the same bug to come back.
-BUNDLE_ID="com.local.meetrec2"
+# Keep stable: UserDefaults tuning keys (README) and TCC grants are keyed to it.
+BUNDLE_ID="com.local.meetrec"
 APP_DIR="${APP_NAME}.app"
 CONTENTS="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS}/MacOS"
