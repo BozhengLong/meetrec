@@ -130,11 +130,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+// Plain AppKit entry point. A SwiftUI `App` needs at least one scene, and a
+// placeholder `Settings {}` scene opens an empty "MeetRec Settings" window at
+// launch (seen on macOS 27). Everything here is driven by AppDelegate anyway.
 @main
-struct MeetRecApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-
-    var body: some Scene {
-        Settings {}
+enum MeetRecMain {
+    @MainActor static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.run()
     }
 }
