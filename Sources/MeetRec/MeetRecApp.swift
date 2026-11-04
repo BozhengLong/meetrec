@@ -1,15 +1,60 @@
 import SwiftUI
 import AppKit
+import Combine
 
-@main
-struct MeetRecApp: App {
-    @StateObject private var engine = RecordingEngine()
+// SwiftUI's MenuBarExtra hosts its status item out-of-process via the private
+// NSSceneStatusItem/Control Center "scene" machinery. On this macOS version
+// (26.4) that machinery fires a spurious NSStatusItemChangeVisibilityAction
+// right after the item is created — misread as "user removed the menu bar
+// icon" — and NSSceneStatusItem responds by calling -[NSApplication terminate:]
+// directly (confirmed via crash-time stack trace: NSSceneStatusItem
+// scene:handleActions: -> NSApplication terminate:). This is the same failure
+// other MenuBarExtra-based apps have hit on recent macOS (e.g. AeroSpace #1786).
+// A manually-managed NSStatusItem (this file) never goes through that scene
+// path and isn't subject to terminationOnRemoval, so it doesn't have the bug.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var engine: RecordingEngine!
     private let hotkeys = HotKeyManager()
+    private var statusItem: NSStatusItem!
+    private var popover: NSPopover!
+    private var cancellable: AnyCancellable?
+    private var shownIcon = ""
+    private var shownTitle: String?
 
-    init() {
-        // Hide dock icon — this is a menu-bar-only app.
+    func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
         Log.reset()
+
+        let engine = RecordingEngine()
+        self.engine = engine
+
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // The status item shares AppKit's default autosave name ("Item-0") with
+        // the old MenuBarExtra build, so a persisted "hidden" state from that
+        // build's spurious removal event could keep it invisible. This app has
+        // no other UI, so always come back visible on launch.
+        item.isVisible = true
+        // Fixed-width digits so the running timer doesn't shift the menu bar.
+        item.button?.font = .monospacedDigitSystemFont(
+            ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)
+        item.button?.imagePosition = .imageLeading
+        item.button?.target = self
+        item.button?.action = #selector(togglePopover)
+        statusItem = item
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 300, height: 260)
+        popover.contentViewController = NSHostingController(rootView: MenuBarView(engine: engine))
+        self.popover = popover
+
+        wireHotkeys(engine: engine)
+        updateStatusItem()
+        cancellable = engine.objectWillChange.sink { [weak self] in
+            DispatchQueue.main.async { self?.updateStatusItem() }
+        }
+
         // Preflight Screen Recording access shortly after launch so missing
         // or stale (post-upgrade) grants get guided fix-up before the first
         // recording silently loses system audio.
@@ -19,21 +64,33 @@ struct MeetRecApp: App {
         }
     }
 
-    var body: some Scene {
-        MenuBarExtra {
-            MenuBarView(engine: engine)
-                .onAppear { wireHotkeys() }
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: iconName)
-                if engine.isRecording {
-                    Text(timeString(engine.elapsed))
-                        .font(.system(.body, design: .monospaced))
-                        .monospacedDigit()
-                }
-            }
+    @objc private func togglePopover() {
+        guard let button = statusItem.button else { return }
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            // Clicking a status item doesn't activate an LSUIElement app; without
+            // this, keystrokes (Return to record, ⌘Q) go to the frontmost app.
+            NSApp.activate()
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
         }
-        .menuBarExtraStyle(.window)
+    }
+
+    private func updateStatusItem() {
+        guard let button = statusItem.button else { return }
+        // The engine publishes ~60×/s while recording (timer + level meters);
+        // only touch the button when what it shows actually changes.
+        let icon = iconName
+        let title = engine.isRecording ? " " + timeString(engine.elapsed) : ""
+        if icon != shownIcon {
+            button.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+            shownIcon = icon
+        }
+        if title != shownTitle {
+            button.title = title
+            shownTitle = title
+        }
     }
 
     private var iconName: String {
@@ -59,7 +116,7 @@ struct MeetRecApp: App {
             : String(format: "%02d:%02d", m, s)
     }
 
-    private func wireHotkeys() {
+    private func wireHotkeys(engine: RecordingEngine) {
         hotkeys.unregisterAll()
         hotkeys.register(.optCmdM) {
             engine.micMuted.toggle()
@@ -70,5 +127,18 @@ struct MeetRecApp: App {
         hotkeys.register(.optCmdR) {
             engine.toggle()
         }
+    }
+}
+
+// Plain AppKit entry point. A SwiftUI `App` needs at least one scene, and a
+// placeholder `Settings {}` scene opens an empty "MeetRec Settings" window at
+// launch (seen on macOS 27). Everything here is driven by AppDelegate anyway.
+@main
+enum MeetRecMain {
+    @MainActor static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.run()
     }
 }

@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="MeetRec"
+# Keep stable: UserDefaults tuning keys (README) and TCC grants are keyed to it.
 BUNDLE_ID="com.local.meetrec"
 APP_DIR="${APP_NAME}.app"
 CONTENTS="${APP_DIR}/Contents"
