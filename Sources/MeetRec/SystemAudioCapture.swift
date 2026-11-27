@@ -6,7 +6,16 @@ import CoreMedia
 enum AudioCaptureError: Error {
     case noDisplays
     case noPermission
-    case streamStartFailed(Error)
+
+    static func mayRetry(_ error: Error) -> Bool {
+        if case AudioCaptureError.noPermission = error { return false }
+        let error = error as NSError
+        guard error.domain == SCStreamErrorDomain else { return true }
+        switch SCStreamError.Code(rawValue: error.code) {
+        case .userStopped, .userDeclined, .missingEntitlements: return false
+        default: return true
+        }
+    }
 }
 
 /// System-audio capture via ScreenCaptureKit. Works on built-in speakers,
@@ -19,18 +28,16 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var handleCount = 0
 
     var onBuffer: ((AVAudioPCMBuffer, AVAudioTime) -> Void)?
+    var onInterruption: ((Error) -> Void)?
 
-    func start() async throws {
+    @MainActor func start() async throws {
+        try Task.checkCancellation()
+        guard ScreenRecordingPermission.hasAccess else { throw AudioCaptureError.noPermission }
         Log.write("sck: requesting shareable content")
-        let content: SCShareableContent
-        do {
-            content = try await SCShareableContent.excludingDesktopWindows(
-                false, onScreenWindowsOnly: true
-            )
-        } catch {
-            Log.write("sck: SCShareableContent FAILED — likely missing Screen Recording permission. \(error)")
-            throw AudioCaptureError.noPermission
-        }
+        let content = try await SCShareableContent.excludingDesktopWindows(
+            false, onScreenWindowsOnly: true
+        )
+        try Task.checkCancellation()
 
         guard let display = content.displays.first else {
             Log.write("sck: no displays found")
@@ -56,25 +63,24 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: audioQueue)
         Log.write("sck: stream created, starting capture")
 
-        do {
-            try await stream.startCapture()
-        } catch {
-            Log.write("sck: startCapture FAILED — \(error)")
-            throw AudioCaptureError.streamStartFailed(error)
-        }
-
+        try await stream.startCapture()
         self.stream = stream
+        if Task.isCancelled {
+            await stop()
+            throw CancellationError()
+        }
         Log.write("sck: STARTED ✓ (sr=48000, ch=2)")
     }
 
-    func stop() async {
+    @MainActor func stop() async {
+        guard let stream else { return }
+        self.stream = nil
         do {
-            try await stream?.stopCapture()
-            Log.write("sck: stopped, total buffers=\(handleCount)")
+            try await stream.stopCapture()
+            Log.write("sck: stopped")
         } catch {
             Log.write("sck: stop error \(error)")
         }
-        stream = nil
     }
 
     // MARK: - SCStreamOutput
@@ -95,6 +101,7 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         Log.write("sck: stream stopped with error \(error)")
+        onInterruption?(error)
     }
 
     // MARK: - CMSampleBuffer → AVAudioPCMBuffer

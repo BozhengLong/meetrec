@@ -24,15 +24,16 @@ final class RecordingEngine: ObservableObject {
     @Published private(set) var lastOutputURL: URL?
     @Published private(set) var systemLevel: Float = 0
     @Published private(set) var micLevel: Float = 0
-    /// True while a recording is running WITHOUT system audio (permission
-    /// missing/stale). Surfaced in the popover and menu bar icon — a meeting
-    /// recorded without the other side must never be a silent failure.
     @Published private(set) var systemAudioFailed = false
+    @Published private(set) var systemAudioPermissionMissing = false
 
     private var systemCapture: SystemAudioCapture?
+    private var systemCaptureID: UUID?
+    private var systemStartTask: Task<Void, Never>?
+    private var systemRecovery: SystemAudioRecovery?
     private var micCapture: MicrophoneCapture?
     private var writer: StereoWriter?
-    private var startDate: Date?
+    private var isStopping = false
     private var timer: Timer?
 
     var recordingsDirectory: URL {
@@ -94,50 +95,101 @@ final class RecordingEngine: ObservableObject {
         try await mic.start()
         self.micCapture = mic
 
-        let sys = SystemAudioCapture()
-        sys.onBuffer = { [weak writer, weak self] buffer, _ in
-            writer?.appendSystem(buffer: buffer)
+        let start = Date()
+        systemRecovery = SystemAudioRecovery(now: ProcessInfo.processInfo.systemUptime)
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] timer in
+            Task { @MainActor in
+                guard let self, self.timer === timer else { return }
+                self.elapsed = Date().timeIntervalSince(start)
+                self.systemLevel *= 0.85
+                self.micLevel *= 0.85
+                self.pollSystemAudio()
+            }
+        }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        lastOutputURL = url
+        isRecording = true
+        pollSystemAudio()
+    }
+
+    private func pollSystemAudio() {
+        guard !isStopping else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        switch systemRecovery?.poll(at: now) {
+        case .connect:
+            startSystemCapture()
+        case .disconnect:
+            Log.write("sck: timed out waiting for audio buffers")
+            stopSystemCapture()
+        default:
+            break
+        }
+        updateSystemAudioWarning(at: now)
+    }
+
+    private func startSystemCapture() {
+        guard let writer else { return }
+        let capture = SystemAudioCapture()
+        let id = UUID()
+        systemCapture = capture
+        systemCaptureID = id
+        capture.onBuffer = { [weak self, weak writer] buffer, _ in
             let peak = AudioLevel.peak(of: buffer)
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+            DispatchQueue.main.async { [weak self, weak writer] in
+                guard let self, self.systemCaptureID == id, let writer else { return }
+                writer.appendSystem(buffer: buffer)
+                let now = ProcessInfo.processInfo.systemUptime
+                if self.systemAudioFailed { Log.write("sck: audio buffers resumed") }
+                self.systemRecovery?.receivedBuffer(at: now)
+                self.updateSystemAudioWarning(at: now)
                 if peak > self.systemLevel { self.systemLevel = peak }
             }
         }
-        do {
-            try await sys.start()
-            self.systemCapture = sys
-        } catch {
-            Log.write("system audio capture FAILED — \(error). Continuing with mic-only.")
-            systemAudioFailed = true
-            // Alert after start completes so the recording state isn't held
-            // hostage by the modal.
-            Task { @MainActor [weak self] in self?.alertSystemAudioFailure() }
+        capture.onInterruption = { [weak self] error in
+            DispatchQueue.main.async { [weak self] in self?.systemCaptureFailed(id: id, error: error) }
         }
-
-        let start = Date()
-        startDate = start
-        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.elapsed = Date().timeIntervalSince(start)
-                // Exponential decay so meters drop smoothly when levels fall.
-                self.systemLevel *= 0.85
-                self.micLevel *= 0.85
+        systemStartTask = Task { [weak self] in
+            do {
+                try await capture.start()
+            } catch {
+                self?.systemCaptureFailed(id: id, error: error)
             }
         }
-        lastOutputURL = url
-        isRecording = true
+    }
+
+    private func systemCaptureFailed(id: UUID, error: Error) {
+        guard systemCaptureID == id else { return }
+        Log.write("sck: capture interrupted or failed to start — \(error)")
+        let now = ProcessInfo.processInfo.systemUptime
+        let retry = AudioCaptureError.mayRetry(error)
+        systemAudioPermissionMissing = !retry && !ScreenRecordingPermission.hasAccess
+        systemRecovery?.interrupted(at: now, retry: retry)
+        stopSystemCapture()
+        updateSystemAudioWarning(at: now)
+    }
+
+    private func updateSystemAudioWarning(at now: TimeInterval) {
+        let warn = systemRecovery?.shouldWarn(at: now) == true
+        if warn != systemAudioFailed { systemAudioFailed = warn }
+    }
+
+    private func stopSystemCapture() {
+        systemCaptureID = nil
+        systemStartTask?.cancel()
+        systemStartTask = nil
+        if let capture = systemCapture {
+            systemCapture = nil
+            Task { await capture.stop() }
+        }
     }
 
     func stop() {
-        guard isRecording else { return }
+        guard isRecording, !isStopping else { return }
+        isStopping = true
         let outputURL = lastOutputURL
-        let sys = systemCapture
         let mic = micCapture
-
-        Task {
-            await sys?.stop()
-        }
+        stopSystemCapture()
         // AUVoiceIO teardown can block for a long time. Keep mic stop off the
         // main thread and never let the writer finalization wait on it —
         // otherwise the UI freezes and the m4a never gets its moov atom.
@@ -156,36 +208,19 @@ final class RecordingEngine: ObservableObject {
         }
     }
 
-    private func alertSystemAudioFailure() {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = "System audio is NOT being recorded"
-        alert.informativeText = """
-        This recording will contain the microphone only.
-
-        The Screen Recording permission is missing or stale (common after \
-        upgrading MeetRec). Open System Settings, toggle MeetRec off and \
-        back on under Screen Recording, then fully quit and relaunch.
-        """
-        alert.addButton(withTitle: "Open Settings")
-        alert.addButton(withTitle: "Continue Mic-Only")
-        if alert.runModal() == .alertFirstButtonReturn {
-            ScreenRecordingPermission.openSettings()
-        }
-    }
-
     private func cleanup() {
         timer?.invalidate()
         timer = nil
-        systemCapture = nil
+        stopSystemCapture()
+        systemRecovery = nil
         micCapture = nil
         writer = nil
-        startDate = nil
         elapsed = 0
         systemLevel = 0
         micLevel = 0
         isRecording = false
+        isStopping = false
         systemAudioFailed = false
+        systemAudioPermissionMissing = false
     }
 }

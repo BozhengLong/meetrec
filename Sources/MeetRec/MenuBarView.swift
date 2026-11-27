@@ -21,13 +21,15 @@ struct MenuBarView: View {
 
             if engine.systemAudioFailed {
                 HStack(spacing: 4) {
-                    Label("No permission — recording mic only", systemImage: "exclamationmark.triangle.fill")
+                    Label("System audio is not being recorded", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2)
                         .foregroundStyle(.red)
                     Spacer()
-                    Button("Fix…") { ScreenRecordingPermission.openSettings() }
-                        .font(.caption2)
-                        .buttonStyle(.link)
+                    if engine.systemAudioPermissionMissing {
+                        Button("Fix…") { ScreenRecordingPermission.openSettings() }
+                            .font(.caption2)
+                            .buttonStyle(.link)
+                    }
                 }
                 .padding(.leading, 22)
             }
