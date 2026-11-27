@@ -18,6 +18,7 @@ let package = Package(
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("Carbon"),
             ]
-        )
+        ),
+        .testTarget(name: "MeetRecTests", dependencies: ["MeetRec"])
     ]
 )
